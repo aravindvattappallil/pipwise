@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {calculateRisk} from '../lib/risk.ts';
+const base={balance:10000,risk:1,mode:'percent',direction:'long',entry:1.1,stop:1.098,target:1.104,contract:100000,pip:.0001,step:.01,usdPerCurrency:1,quote:'USD'};
+test('reference EUR/USD trade produces 0.50 lots, $100 risk and $200 reward',()=>{const r=calculateRisk(base);assert.equal(r.lots,.5);assert.ok(Math.abs(r.actualRisk-100)<1e-8);assert.ok(Math.abs(r.profit-200)<1e-8);});
+test('sell trade and cash risk work',()=>{const r=calculateRisk({...base,direction:'short',stop:1.102,target:1.096,mode:'cash',risk:50});assert.equal(r.lots,.25);assert.ok(Math.abs(r.profit-100)<1e-8);});
+test('rounding never exceeds the budget',()=>{for(let risk=.1;risk<5;risk+=.13){const r=calculateRisk({...base,risk,stop:1.0967});assert.ok(r.actualRisk<=r.budget+1e-8);}});
+test('invalid price geometry and nonfinite inputs are rejected',()=>{assert.ok(calculateRisk({...base,stop:1.101}).error);assert.ok(calculateRisk({...base,target:1.099}).error);assert.ok(calculateRisk({...base,entry:NaN}).error);assert.ok(calculateRisk({...base,risk:101}).error);assert.ok(calculateRisk({...base,step:0}).error);});
+test('optional target and account conversion',()=>{const r=calculateRisk({...base,target:null,usdPerCurrency:1.25});assert.equal(r.lots,.62);assert.equal(r.profit,null);assert.ok(r.actualRisk<=100);});
+test('JPY stop conversion respects the risk budget',()=>{const r=calculateRisk({...base,entry:150,stop:149.5,target:151,pip:.01,quote:'JPY'});assert.equal(r.lots,.29);assert.ok(r.actualRisk<=100);assert.ok(Math.abs(r.profit-(.29*100000/151))<1e-8);});
+test('gold, crypto and below-minimum positions',()=>{assert.equal(calculateRisk({...base,entry:2600,stop:2590,target:2620,contract:100}).lots,.1);assert.equal(calculateRisk({...base,entry:90000,stop:89000,target:92000,contract:1}).lots,.1);assert.equal(calculateRisk({...base,balance:1}).lots,0);});
