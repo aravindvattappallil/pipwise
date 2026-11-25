@@ -43,3 +43,9 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Safe, empty configuration template
+!.dev.vars.example
+
+# Personal Cloudflare deployment configuration
+/wrangler.cloudflare.json

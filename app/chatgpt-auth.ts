@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { loginPath } from "../lib/auth-navigation";
 
 export type ChatGPTUser = {
   userId: string;
@@ -45,7 +46,7 @@ export async function requireChatGPTUser(
   const user = await getChatGPTUser();
   if (user) return user;
 
-  redirect(chatGPTSignInPath(returnTo));
+  redirect(loginPath(returnTo));
 }
 
 export function chatGPTSignInPath(returnTo: string): string {

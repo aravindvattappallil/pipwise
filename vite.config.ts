@@ -43,6 +43,17 @@ export default defineConfig(async ({ command }) => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
+  // Independent hosting uses only your own Cloudflare resources.
+  if (process.env.PIPWISE_CLOUDFLARE_CONFIG) {
+    return {
+      plugins: [vinext(), cloudflare({
+        configPath: process.env.PIPWISE_CLOUDFLARE_CONFIG,
+        viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
+        inspectorPort: false,
+      })],
+    };
+  }
+
   return {
     server: {
       ...(managedLinux
@@ -54,7 +65,7 @@ export default defineConfig(async ({ command }) => {
     },
     plugins: [
       vinext(),
-      sites({ mockAuth: !managedLinux }),
+      sites({ mockAuth: false }),
       connectorPreview(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },

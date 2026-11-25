@@ -1,11 +1,11 @@
 import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '../../chatgpt-auth';
+import { getCurrentUser } from '../../../lib/auth';
 export const dynamic = 'force-dynamic';
 const json = (data: unknown, status = 200) => Response.json(data, {status, headers: {'Cache-Control':'no-store'}});
 const categories = ['Trade recap','Market outlook','Trading psychology','Lesson learned'];
 export async function GET(req: Request) {
   try {
-    const user = await getChatGPTUser();
+    const user = await getCurrentUser();
     if (!user) return json({error:'Sign in to join the community.'},401);
     const db = env.DB!;
     const now = new Date().toISOString();
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   } catch (e) { console.error('Community load failed',e); return json({error:'Your journals could not be loaded. Please try again.'},500); }
 }
 export async function POST(req: Request) {
-  const user = await getChatGPTUser();
+  const user = await getCurrentUser();
   if (!user) return json({error:'Please sign in to continue.'},401);
   if (req.headers.get('origin') && req.headers.get('origin') !== new URL(req.url).origin) return json({error:'Invalid request origin.'},403);
   try {

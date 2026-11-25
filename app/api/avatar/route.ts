@@ -1,15 +1,16 @@
 import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '../../chatgpt-auth';
+import { getCurrentUser } from '../../../lib/auth';
 export const dynamic='force-dynamic';
 export async function GET(req:Request) {
+  if (!await getCurrentUser()) return Response.json({error:'Please sign in to view profile photos.'},{status:401,headers:{'Cache-Control':'no-store'}});
   const key=new URL(req.url).searchParams.get('key');
   if(!key || !key.startsWith('avatars/')) return new Response('Not found',{status:404});
   const obj=await env.BUCKET!.get(key);
   if(!obj) return new Response('Not found',{status:404});
-  return new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/jpeg','Cache-Control':'public,max-age=86400','X-Content-Type-Options':'nosniff'}});
+  return new Response(obj.body,{headers:{'Content-Type':obj.httpMetadata?.contentType||'image/jpeg','Cache-Control':'private,no-store','X-Content-Type-Options':'nosniff'}});
 }
 export async function POST(req:Request) {
-  const user=await getChatGPTUser();
+  const user=await getCurrentUser();
   if(!user)return Response.json({error:'Sign in required.'},{status:401});
   if(req.headers.get('origin') && req.headers.get('origin')!==new URL(req.url).origin)return new Response('Forbidden',{status:403});
   try {

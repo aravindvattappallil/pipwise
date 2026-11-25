@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pipwise-community",
+  "account_id": "REPLACE_WITH_YOUR_CLOUDFLARE_ACCOUNT_ID",
+  "main": "worker/cloudflare.ts",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "APP_ORIGIN": "https://pipwise-community.YOUR-SUBDOMAIN.workers.dev"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "pipwise-db",
+    "database_id": "00000000-0000-4000-8000-000000000000",
+    "migrations_dir": "drizzle"
+  }],
+  "r2_buckets": [{"binding": "BUCKET", "bucket_name": "pipwise-avatars"}],
+  "observability": {"enabled": true}
+}

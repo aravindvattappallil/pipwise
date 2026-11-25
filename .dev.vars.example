@@ -1,0 +1,5 @@
+# Local-only values. Create a Google OAuth client of type Web application.
+# Keep the actual .dev.vars file private; Git ignores it.
+APP_ORIGIN="http://127.0.0.1:5173"
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""

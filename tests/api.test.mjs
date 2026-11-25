@@ -1,10 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readdirSync} from 'node:fs';
+import path from 'node:path';
+import {randomToken,hashToken} from '../lib/auth-utils.ts';
+if(!process.env.PIPWISE_TEST_DB_ROOT)throw new Error('Run npm run test:api to use the isolated test database.');
+const directory=path.join(process.env.PIPWISE_TEST_DB_ROOT,'v3/d1/miniflare-D1DatabaseObject');
+const filename=readdirSync(directory).find(n=>n.endsWith('.sqlite')&&n!=='metadata.sqlite');
+const db=new DatabaseSync(path.join(directory,filename));db.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON');
+const sessions=new Map();
+async function session(user){
+ if(sessions.has(user))return sessions.get(user);
+ const value=randomToken(),now=Date.now();
+ db.prepare('INSERT OR IGNORE INTO profiles (id,name,username,bio,joined) VALUES (?,?,?,?,?)').run(user,'QA Trader',user,'',new Date(now).toISOString());
+ db.prepare('INSERT OR IGNORE INTO google_accounts (subject,user_id,email,created,last_login) VALUES (?,?,?,?,?)').run(user,user,user+'@example.test',new Date(now).toISOString(),new Date(now).toISOString());
+ db.prepare('INSERT INTO auth_sessions (token_hash,user_id,expires,created) VALUES (?,?,?,?)').run(await hashToken(value),user,now+3600000,now);
+ const cookie='pipwise_session='+value;sessions.set(user,cookie);return cookie;
+}
 const origin='http://127.0.0.1:8787';
 const run=Date.now().toString(36);
 const a=`qa-author-${run}`,b=`qa-reader-${run}`;
 const call=async(user,path='/api/community',data)=>{
- const headers=user?{'oai-authenticated-user-id':user,'oai-authenticated-user-email':`${user}@example.test`}:{};
+ const headers=user?{Cookie:await session(user)}:{};
  const r=await fetch(origin+path,{method:data?'POST':'GET',headers:{...headers,...(data?{'Content-Type':'application/json',Origin:origin}:{})},body:data?JSON.stringify(data):undefined});
  return {status:r.status,data:await r.json()};
 };
@@ -33,8 +50,33 @@ test('journal privacy, ownership, likes, bookmarks, profiles and deletion',async
 test('profile photo upload and retrieval',async()=>{
  const user=`qa-photo-${run}`;await call(user);
  const form=new FormData();form.append('photo',new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')],{type:'image/png'}),'pixel.png');
- const headers={'oai-authenticated-user-id':user,'oai-authenticated-user-email':`${user}@example.test`,Origin:origin};
+ const headers={Cookie:await session(user),Origin:origin};
  const r=await fetch(origin+'/api/avatar',{method:'POST',headers,body:form});assert.equal(r.status,200);const {avatar}=await r.json();assert.ok(avatar.startsWith('avatars/'));
- const image=await fetch(origin+`/api/avatar?key=${encodeURIComponent(avatar)}`);assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/png');
+ const image=await fetch(origin+`/api/avatar?key=${encodeURIComponent(avatar)}`,{headers});assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/png');
  const remove=new FormData();remove.append('remove','true');assert.equal((await fetch(origin+'/api/avatar',{method:'POST',headers,body:remove})).status,200);
+});
+
+test('all app pages require a server-validated session',async()=>{
+ for(const route of ['/','/journal','/saved','/profile','/tools/risk-calculator']){
+  const r=await fetch(origin+route,{redirect:'manual'});assert.equal(r.status,307,route);assert.match(r.headers.get('location'),/^\/login\?next=/);const html=await r.text();assert.ok(!html.includes('YOUR COMMUNITY'));
+ }
+ const forged=await fetch(origin+'/api/community',{headers:{'oai-authenticated-user-id':a,'oai-authenticated-user-email':a+'@example.test',Cookie:'__sites_local_auth=1'}});assert.equal(forged.status,401);
+ assert.equal((await fetch(origin+'/api/avatar?key=avatars/test')).status,401);
+ const protectedPage=await fetch(origin+'/saved',{headers:{Cookie:await session(a)}});assert.equal(protectedPage.status,200);assert.match(protectedPage.headers.get('cache-control'),/no-store/);
+});
+test('OAuth uses browser-bound one-time state and safe return URLs',async()=>{
+ const start=await fetch(origin+'/api/auth/google?next=https://evil.test',{redirect:'manual'});assert.equal(start.status,303);
+ const auth=new URL(start.headers.get('location'));assert.equal(auth.origin,'https://accounts.google.com');assert.equal(auth.searchParams.get('code_challenge_method'),'S256');assert.equal(auth.searchParams.get('scope'),'openid email profile');assert.ok(!auth.toString().includes('local-test-only'));
+ const cookie=start.headers.get('set-cookie').split(';')[0];
+ const state=auth.searchParams.get('state');
+ const unbound=await fetch(origin+'/api/auth/google/callback?state='+state+'&error=access_denied',{redirect:'manual'});assert.match(unbound.headers.get('location'),/error=expired/);
+ const bound=await fetch(origin+'/api/auth/google/callback?state='+state+'&error=access_denied',{headers:{Cookie:cookie},redirect:'manual'});assert.match(bound.headers.get('location'),/error=cancelled/);
+ const replay=await fetch(origin+'/api/auth/google/callback?state='+state+'&error=access_denied',{headers:{Cookie:cookie},redirect:'manual'});assert.match(replay.headers.get('location'),/error=expired/);
+});
+test('logout revokes sessions and rejects cross-origin requests',async()=>{
+ const cookie=await session('qa-logout-'+run);
+ assert.equal((await fetch(origin+'/api/auth/session',{headers:{Cookie:cookie}})).status,200);
+ const denied=await fetch(origin+'/api/auth/logout',{method:'POST',headers:{Cookie:cookie,Origin:'https://evil.test'},redirect:'manual'});assert.equal(denied.status,403);
+ const out=await fetch(origin+'/api/auth/logout',{method:'POST',headers:{Cookie:cookie,Origin:origin},redirect:'manual'});assert.equal(out.status,303);assert.match(out.headers.get('set-cookie'),/Max-Age=0/);
+ assert.equal((await fetch(origin+'/api/auth/session',{headers:{Cookie:cookie}})).status,401);
 });
